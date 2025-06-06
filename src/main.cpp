@@ -76,6 +76,8 @@ bool ledState = LOW;
 
 // Arquivo de RFIDs
 const char* filename = "/rfids.txt";
+const char* water_measurement_logs_filename = "/water-measurement.txt";
+const char* user_access_logs_filename = "/user-access.txt";
 
 // Estado temporário
 bool aguardandoCadastro = false;
@@ -90,6 +92,39 @@ HardwareSerial rfidSerial(2);
 long duration;
 float distanceCm;
 int valor;
+
+bool addLogs(String filename, String log) {
+  if (log.isEmpty()) return false;
+  File file = LittleFS.open(filename, FILE_APPEND);
+  if (!file) return false;
+
+  unsigned long currentMillis = millis();
+
+  // Calculate days, hours, minutes, and seconds from milliseconds
+  unsigned long seconds = currentMillis / 1000;
+  unsigned long minutes = seconds / 60;
+  unsigned long hours = minutes / 60;
+  unsigned long days = hours / 24;
+
+  // Get the remainder for each unit
+  currentMillis %= 1000;
+  seconds %= 60;
+  minutes %= 60;
+  hours %= 24;
+
+  // Format the timestamp string
+  String timestamp = String(days) + "-" +
+                     (hours < 10 ? "0" : "") + String(hours) + ":" +
+                     (minutes < 10 ? "0" : "") + String(minutes) + ":" +
+                     (seconds < 10 ? "0" : "") + String(seconds);
+
+
+  // Combine the timestamp with your message
+  String logEntry = "[" + timestamp + "] " + log;
+  file.println(logEntry);
+  file.close();
+  return true;
+}
 
 void useSensorAndChangeLed(){
   digitalWrite(TRIGPIN, LOW);
@@ -111,19 +146,19 @@ void useSensorAndChangeLed(){
   
   if(distanceCm >= VOLUMEAGUAALTO){
       String msg = "Volume de agua baixo | distancia: " + String(distanceCm);
-      // AddMessageToWaterLog(msg.c_str());
+      addLogs(water_measurement_logs_filename, msg.c_str());
       Serial.println(msg);
       valor = 85;
   }
   if(distanceCm < VOLUMEAGUAALTO &&  distanceCm >= VOLUMEAGUABAIXO){
       String msg = "Volume de agua medio | distancia: " + String(distanceCm);
-      // AddMessageToWaterLog(msg.c_str());
+      addLogs(water_measurement_logs_filename, msg.c_str());
       Serial.println(msg);
       valor = 170;
   }
   if(distanceCm < VOLUMEAGUABAIXO){
       String msg = "Volume de agua alto  | distancia: " + String(distanceCm);
-      // AddMessageToWaterLog(msg.c_str());
+      addLogs(water_measurement_logs_filename, msg.c_str());
       Serial.println(msg);
       valor = 255;
     }
@@ -152,6 +187,16 @@ void initFS() {
     File file = LittleFS.open(filename, FILE_WRITE);
     if (file) file.close();
   }
+
+  if (!LittleFS.exists(water_measurement_logs_filename)) {
+    File file = LittleFS.open(water_measurement_logs_filename, FILE_WRITE);
+    if (file) file.close();
+  }
+
+  if (!LittleFS.exists(user_access_logs_filename)) {
+    File file = LittleFS.open(user_access_logs_filename, FILE_WRITE);
+    if (file) file.close();
+  }
 }
 
 // Adiciona RFID ao arquivo
@@ -163,6 +208,39 @@ bool addRFID(String tag) {
   file.close();
   return true;
 }
+
+
+String readLastLogs(String filename, int quantity) {
+  Serial.println("reading filename logs: " + filename);
+  File file = LittleFS.open(filename, "r");
+  if (!file) return "Erro ao abrir o arquivo de log.";
+
+  const int MAX_LINHAS = 50;
+  String linhas[MAX_LINHAS];
+  int total = 0;
+
+  while (file.available() && total < MAX_LINHAS) {
+    String line = file.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) {
+      linhas[total++] = line;
+    }
+  }
+  file.close();
+
+  if (total == 0) return "Nenhum log encontrado.";
+
+  String resultado = "";
+  int inicio = total - quantity;
+  if (inicio < 0) inicio = 0;
+
+  for (int i = inicio; i < total; i++) {
+    resultado += linhas[i] + "\n";
+  }
+
+  return resultado;
+}
+
 
 // Remove RFID do arquivo
 bool removeRFID(String tagToRemove) {
@@ -220,7 +298,7 @@ void handleNewMessages(int numNewMessages) {
       welcome += "/cadastrar - Registrar novo RFID (digite depois)\n";
       welcome += "/remover - Remover RFID (digite depois)\n";
       bot.sendMessage(chat_id, welcome, "");
-    } 
+    }
     else if (text == "/cadastrar") {
       aguardandoCadastro = true;
       aguardandoRemocao = false;
@@ -231,6 +309,13 @@ void handleNewMessages(int numNewMessages) {
       aguardandoCadastro = false;
       bot.sendMessage(chat_id, "Por favor, envie o número do RFID que deseja remover.", "");
     } 
+    else if (text == "/logs-medicao") {
+      Serial.println("usuário digitou /logs-medicao");
+      bot.sendMessage(chat_id, readLastLogs(water_measurement_logs_filename, 5));
+    }
+    else if (text == "/logs-acesso") {
+      bot.sendMessage(chat_id, readLastLogs(user_access_logs_filename, 5));
+    }
     else {
       if (aguardandoCadastro) {
         if (addRFID(text)) {
@@ -313,13 +398,13 @@ void loop() {
       Serial.println("Acesso liberado!");
        // Acende LED verde
       digitalWrite(RELEpin, HIGH); // Liga o relé
-      bot.sendMessage(CHAT_ID, "Acesso liberado para RFID: " + rfid, "");
+      addLogs(user_access_logs_filename, "Acesso liberado para RFID: " + rfid);
       delay(2000); // Mantém por 2 segundos
        // Apaga LED verde
       digitalWrite(RELEpin, LOW); // Desliga o relé
     } else {
       Serial.println("Acesso negado!"); // Acende LED vermelho
-      bot.sendMessage(CHAT_ID, "Acesso negado para RFID: " + rfid, "");
+      addLogs(user_access_logs_filename, "Acesso negado para RFID: " + rfid);
       delay(2000); // Mantém por 2 segundos // Apaga LED vermelho
     }
   }
