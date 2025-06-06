@@ -12,8 +12,8 @@
 #define PINOLED 4
 #define SOUND_SPEED 0.034
 //talvez personalizar depois
-#define VOLUMEAGUAALTO 10
-#define VOLUMEAGUABAIXO 5
+#define VOLUMEAGUAALTO 70
+#define VOLUMEAGUABAIXO 30
 /*
 Componentes do circuito
 - 1 ESP32 30 pinos.
@@ -63,6 +63,14 @@ Conexões do circuito
 // Wi-Fi
 const char* ssid = "sequestro";
 const char* password = "estouapto";
+
+void checkLittleFSSpace() {
+  size_t totalBytes = LittleFS.totalBytes();
+  size_t usedBytes = LittleFS.usedBytes();
+  Serial.println("Espaço total em LittleFS: " + String(totalBytes) + " bytes");
+  Serial.println("Espaço usado em LittleFS: " + String(usedBytes) + " bytes");
+  Serial.println("Espaço livre em LittleFS: " + String(totalBytes - usedBytes) + " bytes");
+}
 
 // Telegram
 WiFiClientSecure client;
@@ -121,7 +129,11 @@ bool addLogs(String filename, String log) {
 
   // Combine the timestamp with your message
   String logEntry = "[" + timestamp + "] " + log;
-  file.println(logEntry);
+  if (file.println(logEntry)) {
+  Serial.println("Log gravado com sucesso: " + logEntry);
+  } else {
+    Serial.println("Erro ao gravar log no arquivo: " + filename);
+  }
   file.close();
   return true;
 }
@@ -137,29 +149,20 @@ void useSensorAndChangeLed(){
   duration = pulseIn(ECHOPIN, HIGH);
   
   distanceCm = duration * SOUND_SPEED/2;
-
-  Serial.println("duration");
-  Serial.println(duration);
-
-  Serial.println("distanceCm");
-  Serial.println(distanceCm);
   
   if(distanceCm >= VOLUMEAGUAALTO){
       String msg = "Volume de agua baixo | distancia: " + String(distanceCm);
       addLogs(water_measurement_logs_filename, msg.c_str());
-      Serial.println(msg);
-      valor = 85;
+      valor = 20;
   }
   if(distanceCm < VOLUMEAGUAALTO &&  distanceCm >= VOLUMEAGUABAIXO){
       String msg = "Volume de agua medio | distancia: " + String(distanceCm);
       addLogs(water_measurement_logs_filename, msg.c_str());
-      Serial.println(msg);
-      valor = 170;
+      valor = 90;
   }
   if(distanceCm < VOLUMEAGUABAIXO){
       String msg = "Volume de agua alto  | distancia: " + String(distanceCm);
       addLogs(water_measurement_logs_filename, msg.c_str());
-      Serial.println(msg);
       valor = 255;
     }
     
@@ -172,8 +175,7 @@ void sensorTask(void* parameter) {
   while(true) {
     useSensorAndChangeLed();
     Serial.println("Rodando Sensor TASK");
-    //delay de 30 segundos
-    vTaskDelay(1800 / portTICK_PERIOD_MS);  
+    vTaskDelay(18000 / portTICK_PERIOD_MS);  
   }
 }
 
@@ -211,34 +213,75 @@ bool addRFID(String tag) {
 
 
 String readLastLogs(String filename, int quantity) {
-  Serial.println("reading filename logs: " + filename);
   File file = LittleFS.open(filename, "r");
-  if (!file) return "Erro ao abrir o arquivo de log.";
-
-  const int MAX_LINHAS = 50;
-  String linhas[MAX_LINHAS];
-  int total = 0;
-
-  while (file.available() && total < MAX_LINHAS) {
-    String line = file.readStringUntil('\n');
-    line.trim();
-    if (line.length() > 0) {
-      linhas[total++] = line;
-    }
+  if (!file) {
+    Serial.println("Erro ao abrir o arquivo de log: " + filename);
+    return "Erro ao abrir o arquivo de log.";
   }
+
+  // Obtém o tamanho do arquivo
+  size_t fileSize = file.size();
+  if (fileSize == 0) {
+    file.close();
+    Serial.println("Arquivo vazio: " + filename);
+    return "Nenhum log encontrado.";
+  }
+
+  // Buffer para armazenar as últimas linhas
+  String* lines = new String[quantity];
+  int lineCount = 0;
+  String currentLine = "";
+
+  // Posiciona o cursor no final do arquivo
+  file.seek(fileSize);
+
+  // Lê o arquivo de trás para frente, byte a byte
+  long pos = fileSize - 1; // Começa do último byte
+  while (pos >= 0 && lineCount < quantity) {
+    file.seek(pos); // Move o cursor para a posição atual
+    char c = file.read(); // Lê um byte
+
+    // Ignora o último '\n' do arquivo, se houver
+    if (pos == fileSize - 1 && c == '\n') {
+      pos--;
+      continue;
+    }
+
+    if (c == '\n' && currentLine.length() > 0) {
+      // Encontrou uma linha completa, armazena no buffer
+      lines[lineCount] = currentLine;
+      lineCount++;
+      currentLine = ""; // Reseta a linha atual
+    } else {
+      // Adiciona o caractere à linha atual (em ordem reversa)
+      currentLine = c + currentLine;
+    }
+
+    pos--; // Move para o byte anterior
+  }
+
+  // Adiciona a última linha (se não terminou com '\n')
+  if (currentLine.length() > 0 && lineCount < quantity) {
+    lines[lineCount] = currentLine;
+    lineCount++;
+  }
+
   file.close();
 
-  if (total == 0) return "Nenhum log encontrado.";
-
-  String resultado = "";
-  int inicio = total - quantity;
-  if (inicio < 0) inicio = 0;
-
-  for (int i = inicio; i < total; i++) {
-    resultado += linhas[i] + "\n";
+  if (lineCount == 0) {
+    delete[] lines;
+    Serial.println("Nenhum log encontrado em: " + filename);
+    return "Nenhum log encontrado.";
   }
 
-  return resultado;
+  // Constrói o resultado na ordem correta (do mais recente ao mais antigo)
+  String result = "";
+  for (int i = lineCount - 1; i >= 0; i--) {
+    result += lines[i] + "\n";
+  }
+
+  delete[] lines; // Libera a memória
+  return result;
 }
 
 
@@ -297,6 +340,8 @@ void handleNewMessages(int numNewMessages) {
       welcome += "Comandos disponíveis:\n";
       welcome += "/cadastrar - Registrar novo RFID (digite depois)\n";
       welcome += "/remover - Remover RFID (digite depois)\n";
+      welcome += "/logs_acesso - Ver quem tentou acessar a tranca de segurança\n";
+      welcome += "/logs_medicao - Ver as últimas medições\n";
       bot.sendMessage(chat_id, welcome, "");
     }
     else if (text == "/cadastrar") {
@@ -309,11 +354,10 @@ void handleNewMessages(int numNewMessages) {
       aguardandoCadastro = false;
       bot.sendMessage(chat_id, "Por favor, envie o número do RFID que deseja remover.", "");
     } 
-    else if (text == "/logs-medicao") {
-      Serial.println("usuário digitou /logs-medicao");
+    else if (text == "/logs_medicao") {
       bot.sendMessage(chat_id, readLastLogs(water_measurement_logs_filename, 5));
     }
-    else if (text == "/logs-acesso") {
+    else if (text == "/logs_acesso") {
       bot.sendMessage(chat_id, readLastLogs(user_access_logs_filename, 5));
     }
     else {
@@ -359,7 +403,6 @@ String readRFID() {
       char endByte = rfidSerial.read(); // Lê byte de fim
       Serial.print(endByte); // Imprime o byte de fim
       if (endByte == 0x03) { // Verifica byte de fim (0x03)
-        Serial.println(); // Nova linha após a leitura completa
         return rfidTag; // Retorna a tag lida
       }
     }
@@ -386,6 +429,7 @@ void setup() {
   Serial.println("\nWiFi conectado. IP: " + WiFi.localIP().toString());
   initFS();
   xTaskCreatePinnedToCore(sensorTask, "SensorTask", 4096, NULL, 1, NULL, 0);
+  checkLittleFSSpace();
 }
 // preto,marrom, laranja e azul
 void loop() {
@@ -393,9 +437,7 @@ void loop() {
   // Lê o RFID
   String rfid = readRFID();
   if (rfid != "") { // Se uma tag for lida
-    Serial.println("RFID Tag: " + rfid);
     if (checkRFID(rfid)) { // Verifica se a tag está cadastrada
-      Serial.println("Acesso liberado!");
        // Acende LED verde
       digitalWrite(RELEpin, HIGH); // Liga o relé
       addLogs(user_access_logs_filename, "Acesso liberado para RFID: " + rfid);
@@ -403,7 +445,6 @@ void loop() {
        // Apaga LED verde
       digitalWrite(RELEpin, LOW); // Desliga o relé
     } else {
-      Serial.println("Acesso negado!"); // Acende LED vermelho
       addLogs(user_access_logs_filename, "Acesso negado para RFID: " + rfid);
       delay(2000); // Mantém por 2 segundos // Apaga LED vermelho
     }
