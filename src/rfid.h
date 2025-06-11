@@ -5,11 +5,13 @@
 
 #include <Arduino.h>
 
+// Funções do módulo
 void initRFID();
-String readRFIDTag();
 bool isRFIDRegistered(String tag);
 bool addRFID(String tag);
 bool removeRFID(String tag);
-void handleRFIDAccess();
+
+// Declaração da Task do RFID
+void rfidTask(void* parameter);
 
 #endif // RFID_H

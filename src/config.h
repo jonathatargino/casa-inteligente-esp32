@@ -1,11 +1,10 @@
 // config.h
-
 #ifndef CONFIG_H
 #define CONFIG_H
 
 // -- Configurações Wi-Fi --
-const char* WIFI_SSID = "sequestro";
-const char* WIFI_PASSWORD = "estouapto";
+extern const char* WIFI_SSID;
+extern const char* WIFI_PASSWORD;
 
 // -- Configurações Telegram --
 #define BOT_TOKEN "7344592024:AAGDK4Mu6kvV9U37gf_R8C8u32dgHDR5KEA"
@@ -26,8 +25,8 @@ const char* WIFI_PASSWORD = "estouapto";
 
 // -- Configurações do Sistema de Arquivos --
 #define FORMAT_LITTLEFS_IF_FAILED true
-const char* RFID_FILENAME = "/rfids.txt";
-const char* WATER_LOGS_FILENAME = "/water-measurement.txt";
-const char* ACCESS_LOGS_FILENAME = "/user-access.txt";
+extern const char* RFID_FILENAME;
+extern const char* WATER_LOGS_FILENAME;
+extern const char* ACCESS_LOGS_FILENAME;
 
 #endif // CONFIG_H

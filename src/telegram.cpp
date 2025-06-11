@@ -16,7 +16,7 @@ static unsigned long lastTimeBotRan;
 static bool aguardandoCadastro = false;
 static bool aguardandoRemocao = false;
 
-// Função auxiliar interna ao módulo
+// Função auxiliar interna para processar novas mensagens
 static void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
     String chat_id = String(bot.messages[i].chat_id);
@@ -74,16 +74,27 @@ static void handleNewMessages(int numNewMessages) {
   }
 }
 
-void initTelegram() {
-  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
-}
-
-void handleTelegramMessages() {
+// Função auxiliar interna para verificar mensagens periodicamente
+static void handleTelegramMessages() {
   if (millis() > lastTimeBotRan + botRequestDelay) {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
     if (numNewMessages > 0) {
       handleNewMessages(numNewMessages);
     }
     lastTimeBotRan = millis();
+  }
+}
+
+// --- Funções Públicas ---
+
+void initTelegram() {
+  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+}
+
+void telegramTask(void* parameter) {
+  Serial.println("Iniciando loop da Task de Telegram...");
+  while (true) {
+    handleTelegramMessages();
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }

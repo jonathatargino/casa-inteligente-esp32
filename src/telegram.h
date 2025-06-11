@@ -4,6 +4,8 @@
 #define TELEGRAM_H
 
 void initTelegram();
-void handleTelegramMessages();
+
+// Declaração da Task do Telegram
+void telegramTask(void* parameter);
 
 #endif // TELEGRAM_H
