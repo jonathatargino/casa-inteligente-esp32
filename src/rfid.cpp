@@ -10,28 +10,37 @@
 HardwareSerial rfidSerial(2);
 
 // Função auxiliar interna para ler a tag do RDM6300
-static String readRFIDTag() {
+String readRFID() {
   String rfidTag = "";
-  if (rfidSerial.available() > 0) {
-    if (rfidSerial.read() == 0x02) { // Byte de início (STX)
-      byte buffer[12]; // 10 bytes de dados + 2 bytes de checksum
-      rfidSerial.readBytes(buffer, 12);
-      
-      // O último byte lido deve ser o byte de fim (ETX)
-      if (buffer[11] == 0x03) { 
-        // Converte os 10 bytes de dados hexadecimais em uma string
-        for (int i = 0; i < 10; i++) {
-          rfidTag += (char)buffer[i];
-        }
+  if (rfidSerial.available() > 0) { // Verifica se há dados disponíveis
+    char startByte = rfidSerial.read();
+    Serial.print(startByte); // Imprime o byte lido (início)
+    if (startByte == 0x02) { // Verifica byte de início (0x02)
+      while (rfidSerial.available() < 10) { // Aguarda 10 bytes do ID
+        delay(10); // Pequeno delay para esperar os dados
+      }
+      for (int i = 0; i < 10; i++) { // Lê 10 bytes do ID
+        char c = rfidSerial.read();
+        rfidTag += c; // Concatena cada caractere ao ID
+        Serial.print(c); // Imprime cada caractere lido
+      }
+      char checksum1 = rfidSerial.read(); // Lê 2 bytes do checksum
+      Serial.print(checksum1); // Imprime o primeiro byte do checksum
+      char checksum2 = rfidSerial.read(); // Lê o segundo byte do checksum
+      Serial.print(checksum2); // Imprime o segundo byte do checksum
+      char endByte = rfidSerial.read(); // Lê byte de fim
+      Serial.print(endByte); // Imprime o byte de fim
+      if (endByte == 0x03) { // Verifica byte de fim (0x03)
+        return rfidTag; // Retorna a tag lida
       }
     }
   }
-  return rfidTag;
+  return ""; // Retorna vazio se não houver tag válida
 }
 
 // Função auxiliar interna para o fluxo de acesso
 static void handleRFIDAccess() {
-  String rfid = readRFIDTag();
+  String rfid = readRFID();
   if (rfid != "") {
     if (isRFIDRegistered(rfid)) {
       digitalWrite(RELE_PIN, HIGH);
